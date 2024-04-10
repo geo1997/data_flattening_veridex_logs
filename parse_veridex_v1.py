@@ -5,6 +5,7 @@ import os
 import json
 from collections import OrderedDict
 import hashlib
+import re
 
 
 def file_hash(file_path):
@@ -47,7 +48,7 @@ def file_hash(file_path):
     return(res)
 
 
-base_path = ["Ljunit",
+base_paths = ["Ljunit",
             "Landroid",
             "Lcom",
             "Ldalvik",
@@ -63,16 +64,9 @@ base_path = ["Ljunit",
 
 
 
-
-
-
-
-
-#infile = "/home/user01/Desktop/Research/DB/LOG__googleplay_2023/veridex_logs_12/00b715ddd8c015612a36dc9a314212df2dbf3867.apk_veridex.txt"
-infile = "/home/user01/Desktop/Research/DB/LOG__googleplay_2023/veridex_logs_14/a6e9d7b323017dc8f3bc3502a15f030e539b9ef9.apk_veridex.txt"
+infile = r"E:\USASK\Fall Term\Research\DB\CSVs\Veridex\logs\veridex_logs_14\a6e9d7b323017dc8f3bc3502a15f030e539b9ef9.apk_veridex.txt"
+#infile = "/home/user01/Desktop/Research/DB/LOG__googleplay_2023/veridex_logs_14/a6e9d7b323017dc8f3bc3502a15f030e539b9ef9.apk_veridex.txt"
 outfile = "parsed_file_csv.csv"
-
-
 
 
 map_caller_ids = OrderedDict()
@@ -142,7 +136,8 @@ file_lines = None
 
 # MAKE STRUCTURE
 
-version_hf = int(infile.split("/")[-2].split("_")[-1])
+#version_hf = int(infile.split("/")[-2].split("_")[-1])
+version_hf = 14
 # check
 valid_versions = [12, 13, 14]
 if not version_hf in valid_versions:
@@ -231,7 +226,6 @@ for call in call_lines:
     caller_parts = caller.split("$")
 
     caller_path= caller_parts[0]
-    print("caller_path",caller_path)
 
     isCallerMethodExist = False
     isSubCallerMethodExist = False
@@ -242,13 +236,123 @@ for call in call_lines:
         # Extract the part after $, including the dollar sign itself (index 1)
         caller_method = caller_parts[1]
         isCallerMethodExist = True
-        print("caller_method", caller_method)
 
 
         if len(caller_parts) > 2:
             caller_sub_method = "$".join(caller_parts[2:])
             isSubCallerMethodExist = True
-            print("caller_sub_method", caller_sub_method)
+
+    modified_callee = callee
+    for base_path in base_paths:
+        modified_callee = modified_callee.replace(base_path, "|" + base_path)
+
+    # Find all substrings that start with | and then followed by any characters until ;
+    modified_callees_with_pipe = re.findall(r'\|[^;]*', modified_callee)
+    base_paths_in_callee =  [path.split("/")[0][1:] for path in modified_callees_with_pipe]  # Extract base paths correctly
+    output = []
+    
+    for i, path in enumerate(modified_callees_with_pipe, 1):
+        callee_has_method = False
+        callee_method_name = ""
+        callee_has_submethod = False
+        callee_submethod_name = ""
+        base_path = ""
+        
+        path = path.strip('|')
+        
+        # Check for method
+        if "$" in path:
+            callee_has_method = True
+            method_parts = path.split("$")
+            callee_method_name = method_parts[1]
+        
+        # Check for submethod
+        if callee_has_method and "$" in callee_method_name:
+            callee_has_submethod = True
+            submethod_parts = callee_method_name.split("$")
+            callee_submethod_name = submethod_parts[1]
+            callee_method_name = submethod_parts[0]
+        
+        # Output format
+        output.append({
+            f'callee_path_{i}': path,
+            f'callee_has_method_{i}': callee_has_method,
+            f'callee_method_name_{i}': callee_method_name,
+            f'callee_has_submethod_{i}': callee_has_submethod,
+            f'callee_submethod_name_{i}': callee_submethod_name,
+            f'callee_base_path_{i}': base_paths_in_callee[i - 1]        
+            })
+    
+    # Fill empty slots
+    for j in range(len(modified_callees_with_pipe) + 1, 6):
+        output.append({
+            f'callee_path_{j}': "",
+            f'callee_has_method_{j}': False,
+            f'callee_method_name_{j}': "",
+            f'callee_has_submethod_{j}': False,
+            f'callee_submethod_name_{j}': "",
+            f'callee_base_path_{j}': ""
+        })
+    
+    print(output)
+
+    total_callee_paths = 0
+    callee_paths_set = set()
+    base_paths_set = set()
+    total_path_with_methods = 0
+    callee_paths_with_methods_set = set()
+
+    for item in output:
+        for i in range(1, 6):
+            path_key = f'callee_path_{i}'
+            base_path_key = f'callee_base_path_{i}'
+            method_key = f'callee_has_method_{i}'
+
+            path = item.get(path_key, '')
+            base_path = item.get(base_path_key, '')
+            has_method = item.get(method_key, False)
+
+            # Calculate total callee paths
+            if path:
+                total_callee_paths = total_callee_paths + 1
+                callee_paths_set.add(path)
+
+            # Calculate total base paths
+            if base_path:
+                base_paths_set.add(base_path)
+
+            # Calculate total path with methods
+            if has_method:
+                total_path_with_methods = total_path_with_methods + 1
+                callee_paths_with_methods_set.add(path)
+
+    # Calculate total unique callee paths
+    total_callee_unique_paths = len(callee_paths_set)
+
+    # Calculate total unique path with methods
+    total_path_with_methods_unique = len(callee_paths_with_methods_set)
+
+    # Calculate total path with methods duplicates
+    total_path_with_methods_dupes = total_path_with_methods - total_path_with_methods_unique
+
+    # Output the results
+    print("# total_callee_paths :", total_callee_paths)
+    print("# total_callee_unique_paths :", total_callee_unique_paths)
+    print("# callee_total_base_paths :", len(base_paths_set))
+    print("# callee_total_path_with_methods :", total_path_with_methods)
+    print("# callee_total_path_with_methods_unique:", total_path_with_methods_unique)
+    print("# callee_total_path_with_methods_dupes:", total_path_with_methods_dupes)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
     # RESULT
     res = [
@@ -281,6 +385,8 @@ for call in call_lines:
 
 
     parsed_line = "|".join(res)
+    #parsed_line = ",".join(res)
+
 
     file_parsed_call_lines.append(parsed_line)
 
@@ -302,14 +408,24 @@ if not parsed_lines == len(file_parsed_call_lines):
 
 
 #WRITE CSV TO DISK
-with io.open(outfile, 'w') as wof:
-    # WRITE HEADER
-    header_line = "|".join(csv_header)
-    wof.write(header_line + "\n")
+# with io.open(outfile, 'w') as wof:
+#     # WRITE HEADER
+#     header_line = "|".join(csv_header)
+#     wof.write(header_line + "\n")
 
-    # WRITE DATA LINES
-    for item in file_parsed_call_lines:
-        wof.write(item + "\n")
+#     # WRITE DATA LINES
+#     for item in file_parsed_call_lines:
+#         wof.write(item + "\n")
+# WRITE CSV TO DISK
+# with io.open(outfile, 'w', newline='') as wof:
+#     # WRITE HEADER
+#     header_line = ",".join(csv_header)
+#     wof.write(header_line + "\n")
+
+#     # WRITE DATA LINES
+#     for item in file_parsed_call_lines:
+#         wof.write(item + "\n")
+
 wof = None
 header_line = None
 item = None
